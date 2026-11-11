@@ -10,7 +10,8 @@ type Item = { product: Product; quantity: number; variant: string; date: string;
 type Panel = 'bag' | 'checkout' | 'success' | 'delivery' | 'terms' | 'story';
 type Mode = 'All' | 'Buy' | 'Rent' | 'Custom';
 
-const ordersEndpoint = 'https://etereal-wedding-market.the-studioeternelle.chatgpt.site/api/orders';
+const marketOrigin = 'https://etereal-wedding-market.the-studioeternelle.chatgpt.site';
+const ordersEndpoint = marketOrigin + '/api/orders';
 
 const modes: Mode[] = ['All', 'Buy', 'Rent', 'Custom'];
 const money = (n: number) => '¥' + n.toLocaleString('ja-JP');
@@ -58,6 +59,7 @@ export default function Page() {
   const [sending, setSending] = useState(false);
   const [orderError, setOrderError] = useState('');
   const [receipt, setReceipt] = useState('');
+  const [emailConfirmed, setEmailConfirmed] = useState(false);
   const attempt = useRef<{ id: string; payload: string } | null>(null);
   const inFlight = useRef(false);
 
@@ -107,6 +109,8 @@ export default function Page() {
       .replace(/[၀-၉]/g, digit => String(digit.charCodeAt(0) - 0x1040));
     const data = {
       name: String(fields.get('name') ?? '').trim(),
+      email: String(fields.get('email') ?? '').trim() || undefined,
+      language,
       phone: normalizePhone(String(fields.get('phone') ?? '').trim()),
       address: String(fields.get('address') ?? '').trim(),
       cod: fields.get('cod') === 'on',
@@ -128,12 +132,13 @@ export default function Page() {
         signal: AbortSignal.timeout(20000),
         body: JSON.stringify({ id, ...data }),
       });
-      const result = await response.json() as { id?: string; error?: string };
+      const result = await response.json() as { id?: string; error?: string; notification?: string };
       if (!response.ok || result.id !== id) {
         setOrderError(response.status === 400 ? result.error ?? 'invalid' : 'unavailable');
         return;
       }
-      setReceipt(id.slice(0, 8).toUpperCase());
+      setReceipt(id);
+      setEmailConfirmed(result.notification === 'sent' && Boolean(data.email));
       updateCart([]);
       attempt.current = null;
       setPanel('success');
@@ -315,6 +320,7 @@ export default function Page() {
             <form onSubmit={submitOrder}>
               <p>{t('Our team will use these details to confirm your order and arrange delivery by phone.', 'အော်ဒါအတည်ပြုပြီး ပစ္စည်းပို့မယ့် နေ့ရက်၊ အချိန် ညှိဖို့ တာဝန်ခံက ဖုန်းဆက်ပါမယ်။')}</p>
               <label>{t('Full name', 'အမည်အပြည့်အစုံ')}<input name="name" autoComplete="name" required maxLength={100} /></label>
+              <label>{t('Email for order updates (optional)', 'အော်ဒါ အခြေအနေ သိရဖို့ အီးမေးလ် (မဖြည့်လည်း ရပါတယ်)')}<input name="email" type="email" autoComplete="email" maxLength={254} /></label>
               <label>{t('Phone number', 'ဖုန်းနံပါတ်')}<input name="phone" type="tel" autoComplete="tel" required minLength={7} maxLength={35} /></label>
               <label>{t('Delivery address', 'ပစ္စည်းပို့ရမယ့် လိပ်စာ')}<textarea name="address" autoComplete="street-address" required minLength={3} maxLength={600} placeholder={t('Include your postal code, building and room number if applicable.', 'စာတိုက်သင်္ကေတ၊ အဆောက်အအုံနာမည်နဲ့ အခန်းနံပါတ်ရှိရင် ထည့်ရေးပေးပါ။')} /></label>
               <div className="total">{t('Estimated subtotal', 'စုစုပေါင်း ခန့်မှန်းဈေး')} <strong>{money(total)}</strong></div>
@@ -322,7 +328,7 @@ export default function Page() {
               {orderError && <p role="alert">{orderError === 'items'
                 ? t('Please check the selected items and rental dates in your bag.', 'ရွေးထားတဲ့ ပစ္စည်းတွေနဲ့ အငှားရက်တွေကို ပြန်စစ်ပေးပါ။')
                 : orderError === 'invalid'
-                  ? t('Check your name, phone number, address and COD acknowledgment.', 'နာမည်၊ ဖုန်းနံပါတ်၊ လိပ်စာနဲ့ COD အတည်ပြုချက်ကို ပြန်စစ်ပေးပါ။')
+                  ? t('Check your name, email, phone number, address and COD acknowledgment.', 'နာမည်၊ အီးမေးလ်၊ ဖုန်းနံပါတ်၊ လိပ်စာနဲ့ COD အတည်ပြုချက်ကို ပြန်စစ်ပေးပါ။')
                   : t('We couldn’t confirm your order yet. Please try again using the same details.', 'အော်ဒါကို အတည်မပြုနိုင်သေးပါ။ ဖြည့်ထားတဲ့ အချက်အလက်အတိုင်း ထပ်စမ်းပေးပါ။')}</p>}
               <button className="dark-button" disabled={sending}>{sending ? t('Placing order…', 'အော်ဒါ တင်နေပါတယ်…') : t('Place COD order', 'COD နဲ့ အော်ဒါတင်မယ်')} <ArrowUpRight size={18} /></button>
               <button className="checkout-back" type="button" disabled={sending} onClick={() => showPanel('bag')}>{t('Back to bag', 'ရွေးထားတဲ့ပစ္စည်းတွေ ပြန်ကြည့်မယ်')}</button>
@@ -330,8 +336,10 @@ export default function Page() {
           )}
           {panel === 'success' && (
             <>
-              <p role="status">{t('Order reference', 'အော်ဒါနံပါတ်')} <strong>{receipt}</strong></p>
+              <p role="status">{t('Order reference', 'အော်ဒါနံပါတ်')} <strong>{receipt.slice(0, 8).toUpperCase()}</strong></p>
               <p>{t('Our team will call you to confirm availability, the final COD amount, and a delivery date and time that works for you.', 'ပစ္စည်းရရှိနိုင်မှု၊ ပစ္စည်းရောက်မှ ချေရမယ့်ငွေနဲ့ ပို့ဆောင်မယ့် နေ့ရက်၊ အချိန်ကို တာဝန်ခံက ဖုန်းဆက်ပြီး အတည်ပြုပေးပါမယ်။')}</p>
+              <a className="dark-button" href={marketOrigin + '/track-order#' + receipt}>{t('View your order', 'အော်ဒါ အခြေအနေ ကြည့်မယ်')}</a>
+              {!emailConfirmed && <p>{t('Save this private link to check your order again later.', 'နောက်မှ အော်ဒါ ပြန်ကြည့်ဖို့ ဒီသီးသန့်လင့်ခ်ကို သိမ်းထားပါ။')}</p>}
               <button className="outline-button" onClick={() => showPanel(null)}>{t('Back to the market', 'ပစ္စည်းတွေ ပြန်ကြည့်မယ်')}</button>
             </>
           )}
