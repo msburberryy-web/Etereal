@@ -172,8 +172,6 @@ html[lang="my"] .collection-title h2 { font-size: clamp(1.4rem, 3vw, 2.45rem); }
 .image-open { display: block; width: 100%; overflow: hidden; }
 .image-open img { aspect-ratio: 4 / 3; background: #e8dccc; }
 .badge { position: absolute; top: 14px; left: 13px; padding: 4px 8px; border: 1px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); font-size: .72rem; font-weight: 700; pointer-events: none; }
-.heart { display: grid; place-items: center; position: absolute; top: 13px; right: 13px; width: 38px; height: 38px; background: var(--paper); border: 1px solid var(--ink); border-radius: 50%; }
-.heart[aria-pressed="true"] { color: var(--red); background: var(--pink); }
 .product-body { padding: 12px 13px; }
 .product-meta { color: var(--muted); font-size: .75rem; }
 .product-body h3 { font-size: clamp(1.05rem, 2vw, 1.55rem); line-height: 1.35; margin: 5px 0 10px; }
@@ -252,8 +250,6 @@ textarea { min-height: 65px; resize: vertical; }
   .count { margin-left: auto; }
   .product-body { padding: 10px; }
   .badge { font-size: .59rem; }
-  .heart { width: 32px; height: 32px; }
-  .heart svg { width: 16px; }
   .dialog-sheet { padding: 34px 15px 20px; }
   .product-modal { display: block; }
   .product-modal > img { height: 175px; margin-bottom: 13px; }
@@ -266,3 +262,5 @@ textarea { min-height: 65px; resize: vertical; }
 .admin-page { max-width: 850px; padding: 18px 0 40px; }
 .admin-page h1 { margin: 24px 0 10px; }
 .admin-page .order { background: var(--paper); padding: 15px; }
+
+.checkout-back { margin: 12px 0 0 14px; text-decoration: underline; font-size: .83rem; }

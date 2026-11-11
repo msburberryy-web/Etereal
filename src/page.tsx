@@ -1,16 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowRight, ArrowUpRight, Heart, Minus, Plus, Search, ShoppingBag, User, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Minus, Plus, Search, ShoppingBag, X } from 'lucide-react';
 import { products, categories, type Product } from './catalog';
 import { burmese } from './burmese';
 import { LanguageSwitch, useLocale } from './locale';
 
 type Item = { product: Product; quantity: number; variant: string; date: string; note: string };
-type Panel = 'bag' | 'delivery' | 'terms' | 'story';
+type Panel = 'bag' | 'checkout' | 'success' | 'delivery' | 'terms' | 'story';
 type Mode = 'All' | 'Buy' | 'Rent' | 'Custom';
 
-const quoteSite = 'https://etereal-wedding-market.the-studioeternelle.chatgpt.site/';
+const ordersEndpoint = 'https://etereal-wedding-market.the-studioeternelle.chatgpt.site/api/orders';
 
 const modes: Mode[] = ['All', 'Buy', 'Rent', 'Custom'];
 const money = (n: number) => '¥' + n.toLocaleString('ja-JP');
@@ -49,27 +49,23 @@ export default function Page() {
   const [category, setCategory] = useState('All pieces');
   const [mode, setMode] = useState<Mode>('All');
   const [query, setQuery] = useState('');
-  const [wishlist, setWishlist] = useState(false);
-  const [saved, setSaved] = useState<string[]>([]);
   const [cart, setCart] = useState<Item[]>([]);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [selected, setSelected] = useState<Product | null>(null);
   const [variant, setVariant] = useState('');
   const [date, setDate] = useState('');
   const [note, setNote] = useState('');
+  const [sending, setSending] = useState(false);
+  const [orderError, setOrderError] = useState('');
+  const [receipt, setReceipt] = useState('');
+  const attempt = useRef<{ id: string; payload: string } | null>(null);
+  const inFlight = useRef(false);
 
   useEffect(() => {
     try {
-      setSaved(JSON.parse(localStorage.getItem('etereal-hearts') ?? '[]'));
       setCart(JSON.parse(localStorage.getItem('etereal-bag') ?? '[]'));
     } catch {}
   }, []);
-
-  function toggleHeart(id: string) {
-    const next = saved.includes(id) ? saved.filter(value => value !== id) : [...saved, id];
-    setSaved(next);
-    try { localStorage.setItem('etereal-hearts', JSON.stringify(next)); } catch {}
-  }
 
   function updateCart(next: Item[]) {
     setCart(next);
@@ -77,14 +73,15 @@ export default function Page() {
   }
 
   function showPanel(next: Panel | null) {
+    if (inFlight.current) return;
+    setOrderError('');
     setPanel(next);
   }
 
-  function browse(next: Mode = 'All', onlySaved = false) {
+  function browse(next: Mode = 'All') {
     setMode(next);
     setCategory('All pieces');
     setQuery('');
-    setWishlist(onlySaved);
   }
 
   function openProduct(product: Product) {
@@ -102,24 +99,70 @@ export default function Page() {
     showPanel('bag');
   }
 
+  async function submitOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (inFlight.current || !cart.length) return;
+    const fields = new FormData(event.currentTarget);
+    const normalizePhone = (value: string) => value.normalize('NFKC')
+      .replace(/[၀-၉]/g, digit => String(digit.charCodeAt(0) - 0x1040));
+    const data = {
+      name: String(fields.get('name') ?? '').trim(),
+      phone: normalizePhone(String(fields.get('phone') ?? '').trim()),
+      address: String(fields.get('address') ?? '').trim(),
+      cod: fields.get('cod') === 'on',
+      items: cart.map(({ product, quantity, variant, date, note }) => ({
+        id: product.id, quantity, variant, date, note,
+      })),
+    };
+    const payload = JSON.stringify(data);
+    if (attempt.current?.payload !== payload) attempt.current = { id: crypto.randomUUID(), payload };
+    const id = attempt.current.id;
+    inFlight.current = true;
+    setSending(true);
+    setOrderError('');
+    try {
+      const response = await fetch(ordersEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
+        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({ id, ...data }),
+      });
+      const result = await response.json() as { id?: string; error?: string };
+      if (!response.ok || result.id !== id) {
+        setOrderError(response.status === 400 ? result.error ?? 'invalid' : 'unavailable');
+        return;
+      }
+      setReceipt(id.slice(0, 8).toUpperCase());
+      updateCart([]);
+      attempt.current = null;
+      setPanel('success');
+    } catch {
+      setOrderError('unavailable');
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+    }
+  }
+
   const filterText = query.trim().toLowerCase();
   const shown = products.filter(product => {
     const terms = [product.name, product.category, product.mode, product.id];
     const searchable = [...terms, ...terms.map(term => burmese[term] ?? '')].join(' ').toLowerCase();
     return (category === 'All pieces' || product.category === category)
       && (mode === 'All' || product.mode === mode)
-      && (!wishlist || saved.includes(product.id))
       && searchable.includes(filterText);
   });
   const total = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
   const modeLabel = (value: Mode) => label(value === 'All' ? 'All pieces' : value);
   const panelTitles: Record<Panel, string> = {
-    bag: t('Your request bag', 'ရွေးထားတဲ့ပစ္စည်းများ'),
+    bag: t('Your bag', 'ရွေးထားတဲ့ပစ္စည်းများ'),
+    checkout: t('Delivery details', 'ပစ္စည်းပို့ရန် အချက်အလက်'),
+    success: t('Order received', 'အော်ဒါ လက်ခံရရှိပါပြီ'),
     delivery: t('Delivery & collection', 'ပစ္စည်းပို့ခြင်းနှင့် လာယူခြင်း'),
     terms: t('Rental & custom policies', 'အငှားနှင့် စိတ်ကြိုက်အော်ဒါ စည်းကမ်းများ'),
     story: t('About Etereal', 'Etereal အကြောင်း'),
   };
-  const historyTitle = t('Your requests', 'ပို့ထားတဲ့ တောင်းဆိုချက်များ');
   const closeLabel = t('Close', 'ပိတ်ရန်');
 
   return (
@@ -129,8 +172,6 @@ export default function Page() {
           <a href="#collection" className="edition">{t('The Wedding Market', 'မင်္ဂလာပွဲဈေး')}</a>
           <LanguageSwitch {...locale} />
           <div className="tools">
-            <a aria-label={historyTitle} href={quoteSite} target="_blank" rel="noreferrer"><User size={19} /></a>
-            <a href="#collection" aria-label={t('Wishlist', 'နှစ်သက်ရာများ')} onClick={() => browse('All', !wishlist)}><Heart size={19} /><sup>{saved.length || ''}</sup></a>
             <button aria-label={panelTitles.bag} onClick={() => showPanel('bag')}><ShoppingBag size={19} /><sup>{cart.length || ''}</sup></button>
           </div>
         </div>
@@ -173,8 +214,7 @@ export default function Page() {
 
         <section id="collection" className="collection">
           <div className="collection-title">
-            <h2>{wishlist ? t('Saved pieces', 'နှစ်သက်ရာ ပစ္စည်းလေးတွေ') : t('The Market', 'မင်္ဂလာပွဲဈေး')}</h2>
-            {wishlist && <button onClick={() => browse()}>{t('See all pieces', 'အားလုံး ပြန်ကြည့်မယ်')} <ArrowRight size={16} /></button>}
+            <h2>{t('The Market', 'မင်္ဂလာပွဲဈေး')}</h2>
           </div>
           <div className="category-tabs" aria-label={t('Categories', 'ပစ္စည်းအမျိုးအစားများ')}>
             {categories.map(value => (
@@ -196,7 +236,6 @@ export default function Page() {
                     <img src={photo(product.image, 720)} alt="" loading="lazy" />
                   </button>
                   <span className={`badge ${product.mode.toLowerCase()}`}>{label(product.mode)}</span>
-                  <button className="heart" aria-pressed={saved.includes(product.id)} aria-label={`${t('Save', 'နှစ်သက်ရာထဲထည့်ရန်')}: ${label(product.name)}`} onClick={() => toggleHeart(product.id)}><Heart size={19} fill={saved.includes(product.id) ? 'currentColor' : 'none'} /></button>
                 </div>
                 <div className="product-body">
                   <div className="product-meta">{label(product.category)}</div>
@@ -206,8 +245,8 @@ export default function Page() {
               </article>
             ))}
           </div>
-          {!shown.length && <p className="empty">{wishlist ? t('No saved pieces match. Tap a heart to save something you like.', 'ကိုက်ညီတဲ့ ပစ္စည်းမတွေ့ပါ။ ကြိုက်တဲ့ပစ္စည်းလေးတွေကို နှလုံးပုံနှိပ်ပြီး သိမ်းထားလို့ရပါတယ်။') : t('No matches. Try a different search or filter.', 'ရှာထားတဲ့ ပစ္စည်းမတွေ့ပါ။ တခြားစကားလုံးနဲ့ ရှာကြည့်ပါ။')}</p>}
-          <p className="sample-note">{t('Photos and prices are samples. We’ll confirm the final price and availability when you request a quote.', 'ပုံနဲ့ ဈေးနှုန်းတွေက နမူနာပါ။ ပစ္စည်းရနိုင်မယ့်ရက်နဲ့ ဈေးနှုန်းကို မေးမြန်းတဲ့အခါ အတည်ပြုပေးပါမယ်။')}</p>
+          {!shown.length && <p className="empty">{t('No matches. Try a different search or filter.', 'ရှာထားတဲ့ ပစ္စည်းမတွေ့ပါ။ တခြားစကားလုံးနဲ့ ရှာကြည့်ပါ။')}</p>}
+          <p className="sample-note">{t('Photos and prices are samples. Our team will confirm availability, final price and delivery when they contact you.', 'ပုံနဲ့ ဈေးနှုန်းတွေက နမူနာပါ။ တာဝန်ခံက ဆက်သွယ်တဲ့အခါ ပစ္စည်းရရှိနိုင်မှု၊ နောက်ဆုံးဈေးနှုန်းနဲ့ ပို့ဆောင်မယ့်ရက်ကို အတည်ပြုပေးပါမယ်။')}</p>
         </section>
       </main>
 
@@ -216,7 +255,6 @@ export default function Page() {
         <div>
           <button onClick={() => showPanel('delivery')}>{panelTitles.delivery}</button>
           <button onClick={() => showPanel('terms')}>{panelTitles.terms}</button>
-          <a href={quoteSite} target="_blank" rel="noreferrer">{historyTitle}</a>
         </div>
       </footer>
 
@@ -238,7 +276,7 @@ export default function Page() {
               <label>{t('Personalisation / special requests', 'စိတ်ကြိုက်ပြင်ချင်တာ၊ မှာချင်တာများ')}
                 <textarea value={note} onChange={event => setNote(event.target.value)} maxLength={2000} placeholder={t('Names, colours, sizes or ideas…', 'နာမည်၊ အရောင်၊ အရွယ်အစား စသဖြင့်…')} />
               </label>
-              <button className="dark-button">{t('Add to request bag', 'ခြင်းထဲ ထည့်မယ်')} <Plus size={18} /></button>
+              <button className="dark-button">{t('Add to bag', 'ခြင်းထဲ ထည့်မယ်')} <Plus size={18} /></button>
             </form>
           </div>
         </Dialog>
@@ -267,11 +305,34 @@ export default function Page() {
               {cart.length > 0 ? (
                 <>
                   <div className="total">{t('Estimated subtotal', 'စုစုပေါင်း ခန့်မှန်းဈေး')} <strong>{money(total)}</strong></div>
-                  <p>{t('Delivery and deposits are quoted separately. Your rental is held once the studio confirms it.', 'ပို့ခနဲ့ စပေါ်ငွေကို သီးသန့်တွက်ပေးပါမယ်။ စတူဒီယိုက အတည်ပြုပြီးမှ အငှားရက်ကို ကြိုတင်ယူထားနိုင်ပါမယ်။')}</p>
-                  <p>{t('Open Etereal to sign in and select your items again before sending a quote request.', 'ဈေးနှုန်းမေးဖို့ Etereal မှာ အကောင့်ဝင်ပြီး ပစ္စည်းတွေကို ပြန်ရွေးပေးပါ။')}</p>
-                  <a className="dark-button" href={quoteSite} target="_blank" rel="noreferrer">{t('Open Etereal to request a quote', 'ဈေးနှုန်းမေးဖို့ Etereal ကို ဖွင့်မယ်')} <ArrowUpRight size={18} /></a>
+                  <p>{t('Pay cash on delivery. Our team will call to confirm delivery fees, any rental deposit, and availability.', 'ပစ္စည်းရောက်မှ ငွေသားနဲ့ ချေပါ။ ပို့ခ၊ အငှားစပေါ်ငွေနဲ့ ပစ္စည်းရရှိနိုင်မှုကို တာဝန်ခံက ဖုန်းဆက်ပြီး အတည်ပြုပေးပါမယ်။')}</p>
+                  <button className="dark-button" onClick={() => showPanel('checkout')}>{t('Continue to checkout', 'အော်ဒါ ဆက်တင်မယ်')} <ArrowRight size={18} /></button>
                 </>
               ) : <p>{t('Your bag is empty. Find something you like in the market.', 'ခြင်းထဲမှာ ပစ္စည်း မရှိသေးပါ။ ကြိုက်တဲ့ ပစ္စည်းလေးတွေ ရွေးကြည့်ပါ။')}</p>}
+            </>
+          )}
+          {panel === 'checkout' && (
+            <form onSubmit={submitOrder}>
+              <p>{t('Our team will use these details to confirm your order and arrange delivery by phone.', 'အော်ဒါအတည်ပြုပြီး ပစ္စည်းပို့မယ့် နေ့ရက်၊ အချိန် ညှိဖို့ တာဝန်ခံက ဖုန်းဆက်ပါမယ်။')}</p>
+              <label>{t('Full name', 'အမည်အပြည့်အစုံ')}<input name="name" autoComplete="name" required maxLength={100} /></label>
+              <label>{t('Phone number', 'ဖုန်းနံပါတ်')}<input name="phone" type="tel" autoComplete="tel" required minLength={7} maxLength={35} /></label>
+              <label>{t('Delivery address', 'ပစ္စည်းပို့ရမယ့် လိပ်စာ')}<textarea name="address" autoComplete="street-address" required minLength={3} maxLength={600} placeholder={t('Include your postal code, building and room number if applicable.', 'စာတိုက်သင်္ကေတ၊ အဆောက်အအုံနာမည်နဲ့ အခန်းနံပါတ်ရှိရင် ထည့်ရေးပေးပါ။')} /></label>
+              <div className="total">{t('Estimated subtotal', 'စုစုပေါင်း ခန့်မှန်းဈေး')} <strong>{money(total)}</strong></div>
+              <label className="checkbox"><input name="cod" type="checkbox" required />{t('I understand this is cash on delivery (COD). I’ll pay in cash when the order arrives.', 'ဒီအော်ဒါက ပစ္စည်းရောက်မှ ငွေသားနဲ့ ချေရမယ့်စနစ် (COD) ဖြစ်တာကို နားလည်ပါတယ်။')}</label>
+              {orderError && <p role="alert">{orderError === 'items'
+                ? t('Please check the selected items and rental dates in your bag.', 'ရွေးထားတဲ့ ပစ္စည်းတွေနဲ့ အငှားရက်တွေကို ပြန်စစ်ပေးပါ။')
+                : orderError === 'invalid'
+                  ? t('Check your name, phone number, address and COD acknowledgment.', 'နာမည်၊ ဖုန်းနံပါတ်၊ လိပ်စာနဲ့ COD အတည်ပြုချက်ကို ပြန်စစ်ပေးပါ။')
+                  : t('We couldn’t confirm your order yet. Please try again using the same details.', 'အော်ဒါကို အတည်မပြုနိုင်သေးပါ။ ဖြည့်ထားတဲ့ အချက်အလက်အတိုင်း ထပ်စမ်းပေးပါ။')}</p>}
+              <button className="dark-button" disabled={sending}>{sending ? t('Placing order…', 'အော်ဒါ တင်နေပါတယ်…') : t('Place COD order', 'COD နဲ့ အော်ဒါတင်မယ်')} <ArrowUpRight size={18} /></button>
+              <button className="checkout-back" type="button" disabled={sending} onClick={() => showPanel('bag')}>{t('Back to bag', 'ရွေးထားတဲ့ပစ္စည်းတွေ ပြန်ကြည့်မယ်')}</button>
+            </form>
+          )}
+          {panel === 'success' && (
+            <>
+              <p role="status">{t('Order reference', 'အော်ဒါနံပါတ်')} <strong>{receipt}</strong></p>
+              <p>{t('Our team will call you to confirm availability, the final COD amount, and a delivery date and time that works for you.', 'ပစ္စည်းရရှိနိုင်မှု၊ ပစ္စည်းရောက်မှ ချေရမယ့်ငွေနဲ့ ပို့ဆောင်မယ့် နေ့ရက်၊ အချိန်ကို တာဝန်ခံက ဖုန်းဆက်ပြီး အတည်ပြုပေးပါမယ်။')}</p>
+              <button className="outline-button" onClick={() => showPanel(null)}>{t('Back to the market', 'ပစ္စည်းတွေ ပြန်ကြည့်မယ်')}</button>
             </>
           )}
           {panel === 'story' && <p>{t('Etereal brings together wedding pieces to buy, rent and make your own, from the first invitation to the last keepsake.', 'Etereal မှာ မင်္ဂလာဖိတ်စာကနေ အမှတ်တရ ပစ္စည်းလေးတွေအထိ တစ်နေရာတည်းမှာ ဝယ်လို့၊ ငှားလို့၊ စိတ်ကြိုက်မှာလို့ရပါတယ်။')}</p>}
@@ -285,7 +346,7 @@ export default function Page() {
             <h3>{t('Rentals', 'အငှားပစ္စည်းများ')}</h3>
             <p>{t('We’ll confirm availability, dates, deposit, return arrangements and damage terms before booking.', 'မငှားခင် ပစ္စည်းရရှိနိုင်မှု၊ ငှားမယ့်ရက်၊ စပေါ်ငွေ၊ ပြန်အပ်ပုံနဲ့ ပျက်စီးမှုဆိုင်ရာ စည်းကမ်းချက်တွေကို အတည်ပြုပေးပါမယ်။')}</p>
             <h3>{t('Payment', 'ငွေပေးချေခြင်း')}</h3>
-            <p>{t('This site accepts quote requests. Available payment methods will be included with your quote.', 'ဒီဆိုက်မှာ ဈေးနှုန်း မေးမြန်းလို့ရပါတယ်။ ငွေပေးချေနိုင်မယ့် နည်းလမ်းတွေကို ဈေးနှုန်းနဲ့အတူ ပြောပြပေးပါမယ်။')}</p>
+            <p>{t('Pay cash on delivery. Our team will confirm the final amount and arrange the delivery date and time by phone.', 'ပစ္စည်းရောက်မှ ငွေသားနဲ့ ချေပေးပါ။ နောက်ဆုံးကျသင့်ငွေနဲ့ ပစ္စည်းပို့မယ့် နေ့ရက်၊ အချိန်ကို တာဝန်ခံက ဖုန်းဆက်ပြီး အတည်ပြုပေးပါမယ်။')}</p>
           </>}
         </Dialog>
       )}
