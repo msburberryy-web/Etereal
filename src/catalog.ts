@@ -1,0 +1,10 @@
+export const products=[
+{id:'ET-001',name:'The Vow Keepsake',category:'Certificates',mode:'Custom',price:4800,lead:'2–3 weeks',image:'photo-1519225421980-715cb0215aed',desc:'A personalised marriage certificate with an elegant border, your names and ceremony date.',variants:['Warm ivory','Soft blush']},
+{id:'ET-002',name:'Pearl Cathedral Veil',category:'Fashion & accessories',mode:'Rent',price:6500,lead:'Request your date',image:'photo-1594552072238-b8a33785b261',desc:'An airy finishing touch for the aisle. Rental availability, deposit and return date are confirmed before booking.',variants:['Ivory · 3 metres','White · 3 metres']},
+{id:'ET-003',name:'Olive Letter Suite',category:'Paper items',mode:'Custom',price:12000,lead:'2–3 weeks',image:'photo-1607344645866-009c320b63e0',desc:'An invitation, detail card and envelope suite. Starting estimate for 20 sets; final quote follows your brief.',variants:['Olive','Burgundy','Ivory']},
+{id:'ET-004',name:'A Moment in Bloom',category:'Photo albums & boards',mode:'Buy',price:8500,lead:'2–3 weeks',image:'photo-1511285560929-80b456fea0bc',desc:'A personalised photo board to welcome your favourite people. Artwork approval is required before production.',variants:['A3','A2']},
+{id:'ET-005',name:'The Digital Invitation',category:'Digital & systems',mode:'Custom',price:28000,lead:'2–3 weeks',image:'photo-1523438885200-e635ba2c371e',desc:'A mobile wedding invitation with your story, event details and RSVP. Scope and delivery are confirmed after consultation.',variants:['English','Burmese','English + Burmese']},
+{id:'ET-006',name:'Sculptural Table Vases',category:'Rental collection',mode:'Rent',price:3200,lead:'Request your date',image:'photo-1478146896981-b80fe463b330',desc:'A considered set of vessels for a beautifully understated table. Price is an illustrative starting estimate per set.',variants:['Set of 3','Set of 6']}
+];
+export const categories=['All pieces','Certificates','Digital & systems','Fashion & accessories','Paper items','Photo albums & boards','Rental collection'];
+export type Product=typeof products[number];
